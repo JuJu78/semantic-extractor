@@ -1,0 +1,19 @@
+# Serveur MCP
+fastmcp
+mcp[cli]              # SDK officiel MCP + CLI utilitaire
+mcp-cli
+
+# Web & scraping
+requests
+beautifulsoup4
+lxml                  # parseur HTML/XML rapide
+
+# Environnement & configuration
+python-dotenv         # charge les variables d’environnement depuis .env
+
+# NLP / embeddings
+nltk                  # stop-words français
+torch                 # backend pour Transformers
+transformers          # modèle sentence-transformers
+sentencepiece         # tokenizer pour certains modèles HF
+

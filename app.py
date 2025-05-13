@@ -19,6 +19,10 @@ from bs4 import BeautifulSoup
 from fastmcp import FastMCP
 from transformers import pipeline
 
+# Import des modules complémentaires
+import paragraph_similarity
+import response_similarity
+
 # Load environment variables
 load_dotenv()
 
@@ -149,7 +153,7 @@ HEADERS = {
 def fetch_url_text(url):
     LOGGER.info("Fetching %s", url)
     try:
-        r = requests.get(url, headers=HEADERS, timeout=10)
+        r = requests.get(url, headers=HEADERS, timeout=45)
         r.raise_for_status()
     except Exception as exc:
         LOGGER.error("Failed to fetch %s : %s", url, exc)
@@ -208,7 +212,7 @@ def extract_entities_dandelion(text):
         r = requests.get(
             f"{DANDELION_BASE_URL}/nex/v1/",
             params={**DANDELION_PARAMS, "text": text, "token": DANDELION_TOKEN, "lang": "fr"},
-            timeout=10,
+            timeout=45,
         )
         r.raise_for_status()
         return r.json().get("annotations", [])
@@ -224,31 +228,6 @@ def extract_entities_dandelion(text):
 mcp = FastMCP("semantic-extractor-py", protocol_version="2024-11-05")
 
 @mcp.tool()
-def hello(name=None):
-    """Simple test tool to verify MCP functionality."""
-    if name:
-        return {"message": f"Hello, {name}!", "timestamp": datetime.utcnow().isoformat()}
-    return {"message": "Hello, world!", "timestamp": datetime.utcnow().isoformat()}
-
-@mcp.tool()
-def get_heartbeat(user=None):
-    """Return a simple heartbeat response."""
-    user_str = user if user else "unknown user"
-    return {
-        "message": f"Heartbeat for {user_str}", 
-        "timestamp": datetime.utcnow().isoformat()
-    }
-
-@mcp.tool()
-def echo(text=None):
-    """Echo back the input text."""
-    return {
-        "input": text,
-        "timestamp": datetime.utcnow().isoformat()
-    }
-
-
-@mcp.tool()
 async def extract_terms_from_url(url, keyword="", ctx=None):
     """Extrait les termes et entités d'une URL et calcule leur similarité avec le mot-clé.
     
@@ -260,7 +239,7 @@ async def extract_terms_from_url(url, keyword="", ctx=None):
     try:
         # Fetch content
         logger.info(f"Fetching content from {url}")
-        response = requests.get(url, timeout=10, headers={
+        response = requests.get(url, timeout=45, headers={
             "User-Agent": "Mozilla/5.0 (compatible; semantic-extractor/1.0)",
             "Accept": "text/html,application/xhtml+xml",
             "Accept-Language": "fr,fr-FR;q=0.9,en;q=0.8"
@@ -483,7 +462,7 @@ async def extract_terms_from_url(url, keyword="", ctx=None):
                     entity_response = requests.post(
                         api_url,
                         data=params,
-                        timeout=20
+                        timeout=45
                     )
                     
                     # Log de la réponse HTTP
@@ -725,7 +704,7 @@ async def extract_content_from_urls(urls=None, ctx=None):
         try:
             # 1. Fetch content
             logger.info(f"Fetching content from {url}")
-            response = requests.get(url, timeout=20)
+            response = requests.get(url, timeout=45)
             response.raise_for_status()  # Raise exception for 4XX/5XX responses
             
             # 2. Parse HTML
@@ -796,6 +775,57 @@ async def extract_content_from_urls(urls=None, ctx=None):
             "url_count": len(urls),
             "results": results
         }
+
+@mcp.tool()
+async def find_relevant_paragraphs(urls=None, question="", ctx=None):
+    """Extrait les paragraphes de plusieurs URLs et calcule leur similarité avec une question.
+    
+    Cette fonction découpe le contenu de chaque URL en paragraphes, calcule l'embedding de chaque
+    paragraphe et de la question, puis évalue leur similarité sémantique pour identifier les passages
+    les plus pertinents par rapport à la question posée.
+    
+    Args:
+        urls: Liste d'URLs ou URL unique à analyser
+        question: Question ou phrase pour laquelle calculer la similarité
+        ctx: Contexte optionnel
+    
+    Returns:
+        Dict contenant les paragraphes les plus pertinents, triés par similarité avec la question
+    """
+    if not urls:
+        return {"error": "Le paramètre 'urls' est obligatoire"}
+    
+    if not question or not question.strip():
+        return {"error": "Le paramètre 'question' est obligatoire"}
+    
+    # Déléguer le traitement au module dédié
+    return await paragraph_similarity.process_urls_and_compute_similarity(urls, question)
+
+@mcp.tool()
+async def compare_response_similarity(question="", response="", reference_paragraphs=None, ctx=None):
+    """Compare la similarité sémantique d'une réponse générée par rapport à une question.
+    
+    Cette fonction permet à un LLM comme Claude Desktop de vérifier si sa réponse est
+    sémantiquement proche de la question posée, et de comparer cette similarité avec
+    celle des paragraphes pertinents extraits de sources externes.
+    
+    Args:
+        question: La question posée
+        response: La réponse générée par le LLM à comparer
+        reference_paragraphs: Optionnel, les paragraphes pertinents identifiés par find_relevant_paragraphs
+        ctx: Contexte optionnel
+    
+    Returns:
+        Dict contenant les scores de similarité, les comparaisons et une interprétation
+    """
+    if not question or not question.strip():
+        return {"error": "Le paramètre 'question' est obligatoire"}
+    
+    if not response or not response.strip():
+        return {"error": "Le paramètre 'response' est obligatoire"}
+    
+    # Déléguer le traitement au module dédié
+    return await response_similarity.compare_response_to_question(question, response, reference_paragraphs)
 
 # Main entry point
 if __name__ == "__main__":
